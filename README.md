@@ -47,7 +47,7 @@ MySQL masters, this include:
 ## How does application connect multi-master
 
 some MySQL client driver support [failover mode](https://dev.mysql.com/doc/connector-j/5.1/en/connector-j-config-failover.html).
-if support you can connect by failover method, such as jdbc-5.1:
+if support you can connect with failover method, such as `jdbc-5.1`:
 ```
 jdbc.user.url=jdbc:mysql://10.0.21.5:3308,10.0.21.7:3308/db_test?failOverReadOnly=false
 &secondsBeforeRetryMaster=60&initialTimeout=1;maxReconnects=2;autoReconnect=true
@@ -57,6 +57,18 @@ if don't support failover mode, you can use haproxy with backup mode:
 ```
 # man haproxy | grep backup
         - switch to backup servers in the event a main one fails ;
+```
+
+**note:** the `mmm-manager` follows the rules of [connector-j-config-failover](https://dev.mysql.com/doc/connector-j/5.1/en/connector-j-config-failover.html):
+```
+1. connect first ip(primary host);
+
+2. if first ip not ok, then connect to second ip;
+
+3. jdbc check the first ip connectivity regularly with params 
+options(such as secondsBeforeRetryMaster, maxReconnects);
+
+4. if the first ip is ok, then jdbc fall back to the first ip; 
 ```
 
 ## How to install mmm-manager
