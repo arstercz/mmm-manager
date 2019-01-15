@@ -211,7 +211,8 @@ sub is_active {
     return 0;
   }
 
-  # if both repl_check is error return false.
+  # if both repl_check is error and current ping 
+  # is error then return false.
   if (($status & 0b100) and ($status & 0b1)
       and $slave_err_count == 2) {
     $log->error("$host both slave status is Error, " 
