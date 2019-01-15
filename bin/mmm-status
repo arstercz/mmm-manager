@@ -1,0 +1,168 @@
+#!/usr/bin/env perl
+=pod
+
+=head1 NAME
+
+mmm-status - print current muli master status.
+
+=head1 SYNOPSIS
+
+Usage: mmm-status [OPTION...]
+
+=head1 RISKS
+
+=cut
+
+# arstercz
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Data::Dumper;
+use Getopt::Long;
+use Carp;
+use Config::IniFiles;
+use MMMM::Monitor::Redis;
+use English '-no_match_vars';
+
+my $help;
+my $tag = 'all';
+my $redis = "127.0.0.1:6379";
+my $conf  = "/etc/mmm-manager/mmm.conf";
+
+GetOptions(
+  "conf=s"   => \$conf,
+  "tag=s"    => \$tag,
+  "redis=s"  => \$redis,
+  "help!"    => \$help,
+) or die "error:$!";
+
+if ($help) {
+  system("perldoc -T $0");
+  exit(0);
+}
+
+unless ($conf) {
+  die "there is no conf options!";
+}
+
+sub mysql_alive {
+  my $redis = shift;
+  my $uniqsign = shift;
+  my $host = shift;
+  my $key  = "mysql-$uniqsign-$host-check";
+ 
+  my ($ping, $last_check, $read_only) = 
+    $redis->{handle}->hmget($key, 
+                    "ping", "last_check", "read_only");
+  my $delay = time() - $last_check;
+
+  my $status = $ping == 1 
+             ? $delay < 30 
+             ? "alive" 
+             : "alive at $delay seconds ago"
+             : "dead";
+  return $status . " readonly: $read_only";
+}
+
+# get database file handle.
+$conf = "./$conf" if $conf && $conf =~ /^[^\/]/;
+
+my $cfg = Config::IniFiles->new(-file => "$conf")
+          or die "parse $conf error: $!";
+
+my @secs = sort @{$cfg->{mysects}};
+if ($tag ne 'all' and !(grep {/$tag/} @secs)) {
+  print "can not find $tag section";
+  exit 1;
+}
+
+if ($cfg->val("redis", "host")) {
+  $redis = $cfg->val("redis", "host");
+}
+
+my $redis_r = 
+  MMMM::Monitor::Redis->new(
+    server => "$redis",
+    name   => sub { "monitor-check-$$" },  
+  );
+
+foreach my $sec (@secs) {
+  if ($sec ne $tag and $tag ne 'all') {
+    next;
+  }  
+
+  my $uniqsign = $cfg->val($sec, "uniqsign");
+  next unless $uniqsign;
+  my $redis_key= "mysql-$uniqsign-mode";
+
+  my ($active, $passive) = 
+    $redis_r->{handle}->hmget($redis_key, "active", "passive");
+
+  print "Current multi master status:\n"
+        . "[$sec]\n"
+        . "  active: "
+        . $active . "(" 
+        . mysql_alive($redis_r, $uniqsign, $active)
+        . ")\n"
+        . "  +- passive: "
+        . $passive . "("
+        . mysql_alive($redis_r, $uniqsign, $passive)
+        . ")\n\n";
+}
+
+# ###################################################################
+# Documentation.
+# ###################################################################
+
+=head1 OPTIONS
+
+=over 4
+
+=item conf
+
+database, redis.. config file, default is /etc/mmm-manager/mmm.conf,
+eg:
+
+  [mysql3308]
+  database=information_schema
+  primaryhost=10.0.21.5:3308
+  secondaryhost=10.0.21.7:3308
+  excludeuser=root, monitor, user_replica
+  user=user_mmm
+  password=P_6pSQL%Yx0J
+  uniqsign=8d9a4b2924dc40baa792d742cb786345
+  servicemode=1
+  charset=utf8
+  connect_timeout=1
+  interval=3
+  try_times=2
+  monitor_logfile=/var/log/mmm-manager/mmm-monitor-3308.log
+  identify_logfile=/var/log/mmm-manager/mmm-identify-3308.log
+
+  [redis]
+  host=10.0.21.17:6379
+  topic=mmm-switch-channel
+
+  [log]
+  logfile=/var/log/mmm-manager/mmm-monitor.log
+
+=item redis
+
+  redis server, default is 127.0.0.1:6379
+
+=item help
+
+  print help info.
+
+=back
+
+=head1 AUTHOR
+
+arstercz@gmail.com
+
+=head1 CHANGELOG
+
+v0.1.0 version
+
+=cut

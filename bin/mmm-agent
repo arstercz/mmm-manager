@@ -1,0 +1,297 @@
+#!/usr/bin/env perl
+=pod
+
+=head1 NAME
+
+mmm-agent - mysql muli master agent to change mysql server.
+
+=head1 SYNOPSIS
+
+Usage: mmm-agent [OPTION...]
+
+=head1 RISKS
+
+=cut
+
+# arstercz
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Data::Dumper;
+use Getopt::Long;
+use Carp;
+use POSIX qw(strftime);
+use Config::IniFiles;
+use MMMM::Repl::dbh;
+use MMMM::Repl::DBHelper;
+use MMMM::Email::Send;
+use MMMM::Log::Record;
+use MMMM::Monitor::Redis;
+use English '-no_match_vars';
+
+my $help;
+my $redis = "127.0.0.1:6379";
+my $conf  = "/etc/mmm-manager/mmm-agent.conf";
+
+GetOptions(
+  "conf=s"   => \$conf,
+  "redis=s"  => \$redis,
+  "help!"    => \$help,
+) or die "error:$!";
+
+if ($help) {
+  system("perldoc -T $0");
+  exit(0);
+}
+
+unless ($conf) {
+  die "there is no conf options!";
+}
+
+sub agent_set {
+  my($cfg, $log, $redis, $redis_topic) = @_;
+  my $sec = "mysql";
+
+  $redis->{handle}->subscribe($redis_topic, 
+            sub {
+              my $message = shift;
+              my $topic   = shift;
+              $log->info("subscribe $topic: $message");
+
+              if (agent_check($message)) {
+                mysql_set($cfg, $sec, $log, $message);
+
+                if ($cfg->val($sec, "send_mail")) {
+                  # send mail
+                  send_mail($cfg, $sec, $message);
+                }
+              }
+            }
+          );
+
+  $redis->{handle}->wait_for_messages(3) while(1);
+}
+
+sub agent_check {
+  my $message = shift;
+ 
+  # message eg: "active: 10.1.1.10:3306, passive: 10.1.1.11:3306, uniqsign: 8d9a4b2924dc40baa792d742cb786345"
+  my %meta = split(/:\s|,\s/, $message);
+
+  my $status = 1;
+  foreach my $k (qw(active passive uniqsign)) {
+    $status = 0 unless exists $meta{$k};
+  }
+  return $status;
+}
+
+sub mysql_set {
+  my($cfg, $sec, $log, $message) = @_;
+  my %meta = split(/:\s|,\s/, $message);
+  my $uniqsign   = $meta{uniqsign};
+
+  # active master
+  master_set($meta{active}, $cfg, $log, $sec, 1);
+
+  # passive master
+  master_set($meta{passive}, $cfg, $log, $sec, 0);
+}
+
+sub master_set {
+  my ($host, $cfg, $log, $sec, $mode) = @_;
+  my $try_time   = $cfg->val($sec, "try_on_failure");
+  my $block_user = $cfg->val($sec, "block_user");
+  my $block_host = $cfg->val($sec, "block_host");
+
+  my $mark = $mode == 1 ? "active" : "passive";
+  $log->info("master_set: $mark $host");
+
+  while($try_time && $try_time--) {
+    my $dbhelper = get_dbhelper($host, $cfg, $log);
+    $try_time = 0 if defined $dbhelper;
+    if (!defined($dbhelper)) {
+      if ($try_time == 0) {
+        $log->error("master_set: cann't get dbhelper $try_time times.");
+        return undef;
+      }
+      $log->info("master_set: sleep 1 when get dbhelper error.");
+      sleep 1;
+      next;
+    }
+
+    $mode == 1 
+          ? $log->info("disable read only")
+            &&  $dbhelper->disable_read_only()
+          : $log->info("enable read only") 
+            &&  $dbhelper->enable_read_only();
+
+    if ($block_user && $block_host) {
+      $log->info("disable local sql log bin");
+      $dbhelper->disable_log_bin_local();
+
+      $mode == 1
+            ? $log->info("release user and host")
+              &&  $dbhelper->release_user_regexp($block_user, $block_host)
+            : $log->info("block user and host")
+              &&  $dbhelper->block_user_regexp($block_user, $block_host);
+
+      $log->info("enable local sql log bin");
+      $dbhelper->enable_log_bin_local();
+    }
+
+    # start slave when io_thread and sql_thread both are No
+    if ($mode == 1) {
+      my %status = $dbhelper->check_slave_status();
+      if ($status{Slave_IO_Running} eq 'No'
+           && $status{Slave_SQL_Running} eq 'No') {
+        $log->info("both IO and SQL thread are No, start slave...");
+        $dbhelper->start_slave();
+      }
+    }
+  }
+}
+
+sub get_dbhelper {
+  my ($master, $cfg, $log) = @_;
+  my ($host, $port) = split(/:/, $master);
+  my $sec        = "mysql";
+  my $user       = $cfg->val($sec, "user");
+  my $password   = $cfg->val($sec, "password");
+  my $database   = $cfg->val($sec, "database");
+  my $charset    = $cfg->val($sec, "charset");
+  my $timeout    = $cfg->val($sec, "connect_timeout");
+
+  my $dbpre = MMMM::Repl::dbh->new(
+    host     => $host,
+    port     => $port,
+    user     => $user,
+    password => $password,
+    charset  => $charset,
+    driver   => 'mysql',
+    timeout  => $timeout,
+  );
+
+  my $dbh = undef;
+  my $dbhelper = undef;
+  eval {
+    $dbh = $dbpre->get_dbh($database, {AutoCommit => 1});
+    $dbhelper     = MMMM::Repl::DBHelper->new(dbh => $dbh);
+  };
+  if ($@) {
+    $log->error("error in get_dbhelper: $@");
+  }
+  return $dbhelper;
+}
+
+sub send_mail {
+  my ($cfg, $sec, $message) = @_;
+  my $mailserver = $cfg->val($sec, "email_server") || undef;
+  my $sender   = $cfg->val($sec, "email_sender") || undef;
+  my $receiver = $cfg->val($sec, "email_receiver") || undef;
+  my @receivers = split(/,\s*/, $receiver);
+
+  return undef unless defined $receiver;
+
+  my $smtp = MMMM::Email::Send->new(
+    subject => 'mmm-manager change',
+    mailto  => \@receivers,
+    mailfrom=> $sender,
+    mailserver => $mailserver,
+  );
+
+  my @msg;
+  push @msg, "active-passive changed";
+  push @msg, $message;
+  $smtp->send(@msg);
+}
+
+# get database file handle.
+$conf = "./$conf" if $conf && $conf =~ /^[^\/]/;
+
+my $cfg = Config::IniFiles->new(-file => "$conf")
+          or die "parse $conf error: $!";
+
+my $logfile = 
+    $cfg->val("log", "logfile") || "/tmp/$0.log";
+
+my $log = 
+   MMMM::Log::Record->new(
+     'filename' => "$logfile",
+     'min_level'=> "debug",
+     'mode'     => 'append',
+   );
+
+# list all sections
+my @secs = sort @{$cfg->{mysects}};
+$log->info("setcions: " . join(", ", @secs));
+
+if ($cfg->val("redis", "host")) {
+  $redis = $cfg->val("redis", "host");
+  $log->info("get redis host: $redis");
+}
+
+my $redis_r = 
+  MMMM::Monitor::Redis->new(
+    server => "$redis",
+    name   => sub { "mmm-agent-$$" },  
+  );
+
+my $redis_topic = $cfg->val("redis", "topic");
+
+agent_set($cfg, $log, $redis_r, $redis_topic);
+
+
+# ###################################################################
+# Documentation.
+# ###################################################################
+
+=head1 OPTIONS
+
+=over 4
+
+=item conf
+
+database, redis.. config file, default is /etc/mmm-manager/mmm-agent.conf,
+eg:
+
+  [mysql]
+  database=information_schema
+  user=user_mmm
+  password=P_6pSQL%Yx0J
+  block_user=^user_app1|^user_app2$
+  block_host=^10\.0\.21\.%$
+  charset=utf8
+  connect_timeout=1
+  try_on_failure=3
+  send_mail=1
+  email_server=10.0.21.5
+  email_sender=mmm_manager@mmm.com
+  email_receiver=arstercz@gmail.com
+
+  [redis]
+  host=10.0.21.17:6379
+  topic=mmm-switch-channel
+
+  [log]
+  logfile=/var/log/mmm-manager/mmm-agent.log
+
+=item redis
+
+  redis server, default is 127.0.0.1:6379
+
+=item help
+
+  print help info.
+
+=back
+
+=head1 AUTHOR
+
+arstercz@gmail.com
+
+=head1 CHANGELOG
+
+v0.1.0 version
+
+=cut

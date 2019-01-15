@@ -1,0 +1,5 @@
+#!/bin/bash
+# generate the uniqsign
+set -e
+
+uuidgen | sed 's/-//g'

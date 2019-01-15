@@ -1,0 +1,355 @@
+#!/usr/bin/env perl
+=pod
+
+=head1 NAME
+
+mmm-identify - identify and change the mysql multi master mode.
+
+=head1 SYNOPSIS
+
+Usage: mmm-identify [OPTION...]
+
+=head1 RISKS
+
+=cut
+
+# arstercz
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Data::Dumper;
+use Getopt::Long;
+use Carp;
+use Config::IniFiles;
+use MMMM::Log::Record;
+use MMMM::Monitor::Redis;
+use English '-no_match_vars';
+
+my($tag,$help);
+my $redis = "127.0.0.1:6379";
+my $conf  = "/etc/mmm-manager/mmm.conf";
+
+GetOptions(
+  "conf=s"   => \$conf,
+  "tag=s"    => \$tag,
+  "redis=s"  => \$redis,
+  "help!"    => \$help,
+) or die "error:$!";
+
+if ($help) {
+  system("perldoc -T $0");
+  exit(0);
+}
+
+unless ($conf) {
+  die "there is no conf options!";
+}
+
+unless ($tag) {
+  die "must specify the --tag value!";
+}
+
+sub status_check {
+  my($cfg, $sec, $redis, $topic)   = @_;
+  my $excludeuser  = $cfg->val($sec, "excludeuser");
+  my $primaryhost  = $cfg->val($sec, "primaryhost");
+  my $secondaryhost= $cfg->val($sec, "secondaryhost");
+  my $uniqsign     = $cfg->val($sec, "uniqsign");
+  my $interval     = $cfg->val($sec, "interval");
+  my $try_times    = $cfg->val($sec, "try_times");
+  my $logfile      = $cfg->val($sec, "identify_logfile");
+  my @masters      = ($primaryhost, $secondaryhost);
+
+  my $log = 
+     MMMM::Log::Record->new(
+       'filename' => "$logfile",
+       'min_level'=> "debug",
+       'mode'     => 'append',
+     );
+  
+  my %check_result = (
+    masters     => [@masters],
+    uniqsign    => $uniqsign,
+    primaryhost => $primaryhost,
+    topic       => $topic,
+    log         => $log,
+  );
+  
+  unless ($redis->is_members_ok(%check_result)) {
+    $log->("members check error!");
+    return undef;
+  }
+
+  if ($redis->service_mode($uniqsign)) {
+    $log->info("servicemode is 1(active-passive), continue...");
+  }
+  else {
+    $log->info("servicemode is 0(active-active), skip...");
+    return undef;
+  }
+
+  my %host_status = ();
+  my $check_counter = 0;
+  my $now_time    = time;
+  $try_times = 2 if $try_times < 2;
+
+  while ($try_times && $try_times--) {
+    foreach my $host (@masters) {
+      my $common_check = $redis->status_get($host, %check_result);
+      if (defined $common_check->{last_check}) {
+        if ($now_time - $common_check->{last_check} > 30) {
+          $log->error("last_check is too old for $host, skip..");
+          next;
+        }
+      }
+      else {
+        $log->error("cann't get common_check!");
+        next;
+      }
+      $check_result{$host} = $common_check;
+      $host_status{$host}  = status_verify(%$common_check);
+    }
+
+    $check_result{current_master} = 
+        select_master($primaryhost, $log, %host_status);
+    return undef unless defined $check_result{current_master};
+
+    if ($redis->is_mode_change($log, $uniqsign,
+                 $check_result{current_master})) {
+      $check_counter++;
+      $log->info("mode changed counter: $check_counter");
+      sleep $interval;
+    }
+
+  }
+
+  # set redis master key
+  $redis->mode_set(%check_result) if $check_counter > 1;
+}
+
+# check the host status, result is 5 bit length:
+# 0b00001: ping is not ok
+# 0b00010: host is readonly
+# 0b00100: slave is error
+# 0b01000: delay_sec > 0
+# 0b10000: conn nums is 0
+sub status_verify {
+  my %args = @_;
+  my $result = 0b0;
+
+  if ($args{ping} != 1) {
+    $result |= 0b1;
+  }
+
+  if ($args{read_only} == 1) {
+    $result |= 0b10;
+  }
+
+  if ($args{repl_check} eq 'Error') {
+    $result |= 0b100;
+  }
+
+  if ($args{delay_sec} > 0) {
+    $result |= 0b1000;
+  }
+
+  if ($args{conn_nums} == 0) {
+    $result |= 0b10000;
+  }
+  return $result;
+}
+
+sub select_master {
+  my $primaryhost = shift;
+  my $log  = shift;
+  my %args = @_;
+  
+  my $active = undef;
+  my @activehosts;
+  
+  my $alive_err_count = grep {$_ & 0b1} (values %args);
+  my $slave_err_count = grep {$_ & 0b100} (values %args);
+  my $conn_zero_count = grep {$_ & 0b10000} (values %args);
+
+  foreach my $k (keys %args) {
+    if (is_active($k, $args{$k}, $log, $alive_err_count, 
+          $slave_err_count, $conn_zero_count)) {
+      push @activehosts, $k
+    }
+  }
+
+  if (@activehosts + 0 == 2) {
+    $log->info("select_master: all host can be master, "
+               . "select the primary host $primaryhost");
+    $active = $primaryhost;
+  }
+
+  if (@activehosts + 0 == 1) {
+    $log->info("select the host " . $activehosts[0]);
+    $active = $activehosts[0];
+  }
+  return $active;
+}
+
+sub is_active {
+  my $host     = shift;
+  my $status   = shift;
+  my $log      = shift;
+  my $alive_err_count = shift;
+  my $slave_err_count = shift;
+  my $conn_zero_count = shift;
+
+  if ($status & 0b1) {
+    $log->error("$host ping is error.");
+    return 0;
+  }
+
+  # if readonly and slave delay return false.
+  if (($status & 0b10) and ($status & 0b1000)) {
+    $log->error("$host is read only and delayed.");
+    return 0;
+  }
+
+  # if both repl_check is error return false.
+  if (($status & 0b100) and ($status & 0b1)
+      and $slave_err_count == 2) {
+    $log->error("$host both slave status is Error, " 
+                . "and host ping is error!");
+    return 0;
+  }
+
+  # if delay > 0 return false.
+  if ($status & 0b1000) {
+    $log->error("$host slave delay.");
+    return 0;
+  }
+
+  #if conn nums is 0 and all host alive and the 
+  # other is not 0 then return false.
+  if (($status & 0b10000) and $alive_err_count == 0 
+       and $conn_zero_count < 2) {
+    $log->error("$host conn nums is 0.");
+    return 0;
+  }
+  return 1;
+}
+
+#SIG{'INT'} and SIG{'TERM'} should be ignored.
+sub catch_sig {
+  my $signame = shift;
+  my $log = shift;
+  $log->info("receive signal: $signame, skip...");
+  if ($signame eq 'INT' or $signame eq 'TERM') {
+    local $SIG{$signame} = 'IGNORE';
+    return $SIG{$signame};
+  }
+}
+
+# get database file handle.
+$conf = "./$conf" if $conf && $conf =~ /^[^\/]/;
+
+my $cfg = Config::IniFiles->new(-file => "$conf")
+          or die "parse $conf error: $!";
+
+my $logfile = 
+    $cfg->val("log", "logfile") || "/tmp/$0.log";
+
+my $log = 
+   MMMM::Log::Record->new(
+     'filename' => "$logfile",
+     'min_level'=> "debug",
+     'mode'     => 'append',
+   );
+
+# list all sections
+my @secs = sort @{$cfg->{mysects}};
+$log->info("setcions: " . join(", ", @secs));
+
+unless (grep {/$tag/} @secs) {
+  $log->error("can not find $tag section");
+  exit 1;
+}
+
+if ($cfg->val("redis", "host")) {
+  $redis = $cfg->val("redis", "host");
+  $log->info("get redis host: $redis");
+}
+
+my $redis_topic = $cfg->val("redis", "topic");
+
+my $redis_r = 
+  MMMM::Monitor::Redis->new(
+    server => "$redis",
+    name   => sub { "mmm-identify-$$" },  
+  );
+
+# get database meta info
+my $interval = $cfg->val($tag, "interval") || 3;
+
+while(1) {
+  $SIG{INT} = sub { catch_sig("INT", $log) };
+  $SIG{TERM}= sub { catch_sig("TERM", $log) };
+
+  status_check($cfg, $tag, $redis_r, $redis_topic);
+  select(undef, undef, undef, $interval);
+}
+
+# ###################################################################
+# Documentation.
+# ###################################################################
+
+=head1 OPTIONS
+
+=over 4
+
+=item conf
+
+database, redis.. config file, default is /etc/mmm-manager/mmm.conf, eg:
+
+  [mysql3308]
+  database=information_schema
+  primaryhost=10.0.21.5:3308
+  secondaryhost=10.0.21.7:3308
+  excludeuser=root, monitor, user_replica
+  user=user_mmm
+  password=P_6pSQL%Yx0J
+  uniqsign=8d9a4b2924dc40baa792d742cb786345
+  servicemode=1
+  charset=utf8
+  connect_timeout=1
+  interval=3
+  try_times=2
+  monitor_logfile=/var/log/mmm-manager/mmm-monitor-3308.log
+  identify_logfile=/var/log/mmm-manager/mmm-identify-3308.log
+
+  [redis]
+  host=10.0.21.17:6379
+  topic=mmm-switch-channel
+
+  [log]
+  logfile=/var/log/mmm-manager/mmm-monitor.log
+
+=item tag
+
+instance name from config file. such as mysql3308 with conf option.
+
+=item redis
+
+redis server, default is 127.0.0.1:6379
+
+=item help
+
+print help info.
+
+=back
+
+=head1 AUTHOR
+
+arstercz@gmail.com
+
+=head1 CHANGELOG
+
+v0.1.0 version
+
+=cut
