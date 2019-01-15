@@ -105,6 +105,8 @@ by default.
 can work with on instance once time. you can start multiple process with different
 tag to monitor multiple multi-master instance.
 
+`mmm-monitor` and `mmm-identify` ignore the `INT` and `TERM` signal.
+
 ```
 [mysql3308]                               # tag
 database=information_schema
