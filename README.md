@@ -3,7 +3,7 @@
 MySQL multi-master manager, can be used in cloud environment, as some cloud vendors 
 don't support virtual ip. can also be used with haproxy that running in backup mode.
 
-*Currently only the active-passive is support!*
+**Currently only the active-passive is support!**
 
 ## Overview
 
@@ -100,7 +100,7 @@ primaryhost=10.0.21.5:3308                # primary select as active master.
 secondaryhost=10.0.21.7:3308
 excludeuser=root, monitor, user_replica   # ignore when count mysql running thread.
 user=user_mmm                             # monitor user, need privileges: SELECT, PROCESS, SUPER, REPLICATION SLAVE
-password=P_6pSQL%Yx0J
+password=xxxxxxxx
 uniqsign=8d9a4b2924dc40baa792d742cb786345 # uniquely identifies a MySQL instance, generate by mmm-uniqsign
 servicemode=1                             # 0: active-active, 1: active-passive, currently only support 1
 charset=utf8
@@ -128,7 +128,7 @@ to this topic channel.
 [mysql]
 database=information_schema
 user=user_mmm
-password=P_6pSQL%Yx0J
+password=xxxxxxxx
 block_user=^user_app1|^user_app2$   # mmm-agent will release/block specified user@host, you can skip this if you don't set block_user and block_host options.
 block_host=^10\.12\.17\.%$
 charset=utf8
@@ -141,7 +141,7 @@ email_receiver=arstercz@gmail.com   # necessary if send_mail
 
 [redis]
 host=10.0.21.17:6379
-topic=mmm-switch-channel            # samme with mmm.conf
+topic=mmm-switch-channel            # the same with mmm.conf
 
 [log]
 logfile=/var/log/mmm-manager/mmm-agent.log
