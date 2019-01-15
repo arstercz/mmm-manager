@@ -130,7 +130,7 @@ eg:
   secondaryhost=10.0.21.7:3308
   excludeuser=root, monitor, user_replica
   user=user_mmm
-  password=P_6pSQL%Yx0J
+  password=xxxxxxxx
   uniqsign=8d9a4b2924dc40baa792d742cb786345
   servicemode=1
   charset=utf8

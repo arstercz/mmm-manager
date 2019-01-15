@@ -258,7 +258,7 @@ eg:
   [mysql]
   database=information_schema
   user=user_mmm
-  password=P_6pSQL%Yx0J
+  password=xxxxxxxx
   block_user=^user_app1|^user_app2$
   block_host=^10\.0\.21\.%$
   charset=utf8
