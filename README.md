@@ -49,7 +49,8 @@ MySQL masters, this include:
 some MySQL client driver support [failover mode](https://dev.mysql.com/doc/connector-j/5.1/en/connector-j-config-failover.html).
 if support you can connect by failover method, such as jdbc-5.1:
 ```
-jdbc.user.url=jdbc:mysql://10.0.21.5:3308,10.0.21.7:3308/db_test?failOverReadOnly=false&secondsBeforeRetryMaster=60&initialTimeout=1;maxReconnects=2;autoReconnect=true
+jdbc.user.url=jdbc:mysql://10.0.21.5:3308,10.0.21.7:3308/db_test?failOverReadOnly=false
+&secondsBeforeRetryMaster=60&initialTimeout=1;maxReconnects=2;autoReconnect=true
 ```
 
 if don't support failover mode, you can use haproxy with backup mode:
@@ -70,8 +71,8 @@ perl-DBD-mysql
 perl-Config-IniFiles
 perl-Log-Dispatch
 perl-Data-Dumper
-perl-Authen-SASL  # if you send mail by smtp server
-mailx             # if you send mail by mail command
+perl-Authen-SASL  # if send mail by smtp server
+mailx             # if send mail by mail command
 ```
 
 #### INSTALL
