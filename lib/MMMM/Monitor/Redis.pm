@@ -95,7 +95,7 @@ sub common_set {
                            @masters);
     };
     if ($@) {
-      $log->("sadd members error: $@");
+      $log->error("sadd members error: $@");
     }
   }
 }
