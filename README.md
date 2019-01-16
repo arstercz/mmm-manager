@@ -71,6 +71,9 @@ options(such as secondsBeforeRetryMaster, maxReconnects);
 4. if the first ip is ok, then jdbc fall back to the first ip; 
 ```
 
+**Enable read_only in my.cnf is recommand as active master maybe crash, and jdbc will 
+fall back to connect if the active recovery but slave status is error(such as error 1236)**
+
 ## How to install mmm-manager
 
 #### Dependency

@@ -125,7 +125,7 @@ sub status_check {
   }
 
   # set redis master key
-  $redis->mode_set(%check_result) if $check_counter > 1;
+  $redis->mode_set(%check_result) if $check_counter == $try_times;
 }
 
 # check the host status, result is 5 bit length:
@@ -211,12 +211,11 @@ sub is_active {
     return 0;
   }
 
-  # if both repl_check is error and current ping 
-  # is error then return false.
-  if (($status & 0b100) and ($status & 0b1)
-      and $slave_err_count == 2) {
+  # if both repl_check is error and current conn 
+  # nums is 0 then return false.
+  if ($slave_err_count == 2 and ($status & 0b10000)) {
     $log->error("$host both slave status is Error, " 
-                . "and host ping is error!");
+                . "and conn nums is 0!");
     return 0;
   }
 
@@ -230,7 +229,9 @@ sub is_active {
   # other is not 0 then return false.
   if (($status & 0b10000) and $alive_err_count == 0 
        and $conn_zero_count < 2) {
-    $log->error("$host conn nums is 0, maybe passive host");
+    $log->error("$host conn nums is 0, " 
+                . "and the other conn nums greater than 0, "
+                . "this maybe a passive host.");
     return 0;
   }
   return 1;
