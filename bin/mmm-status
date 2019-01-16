@@ -99,6 +99,8 @@ foreach my $sec (@secs) {
   my ($active, $passive) = 
     $redis_r->{handle}->hmget($redis_key, "active", "passive");
 
+  next unless ($active or $passive);
+
   print "Current multi master status:\n"
         . "[$sec]\n"
         . "  active: "
