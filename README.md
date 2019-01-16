@@ -72,7 +72,7 @@ options(such as secondsBeforeRetryMaster, maxReconnects);
 ```
 
 **Enable read_only in my.cnf is recommand as active master maybe crash, and jdbc will 
-fall back to connect if the active recovery but slave status is error(such as error 1236)**
+fall back to connect if the active recovery even the slave status is error(such as error 1236)**
 
 ## How to install mmm-manager
 

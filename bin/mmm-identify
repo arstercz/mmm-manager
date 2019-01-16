@@ -125,7 +125,9 @@ sub status_check {
   }
 
   # set redis master key
-  $redis->mode_set(%check_result) if $check_counter == $try_times;
+  if ($check_counter >= int($cfg->val($sec, "try_times") / 2)) {
+    $redis->mode_set(%check_result);
+  }
 }
 
 # check the host status, result is 5 bit length:
