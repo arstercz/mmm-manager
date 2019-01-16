@@ -29,4 +29,4 @@ install_tools: install_common
 		cp -f bin/mmm-status ${BINDIR}
 		cp -f bin/mmm-uniqsign ${BINDIR}
 
-install: install_monitor install_identify install_tools
+install: install_monitor install_identify install_agent install_tools
