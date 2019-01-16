@@ -124,7 +124,7 @@ sub is_members_ok {
 
   my $status = 1;
 
-  $status = 0 unless (@get_masters + 0 == 0);
+  $status = 0 if (@get_masters + 0 == 0);
 
   foreach my $k (@get_masters) {
     unless (defined $masters_info{$k}) {
