@@ -65,8 +65,6 @@ sub common_set {
   eval {
     $self->{handle}->setnx("mysql-$uniqsign-servicemode",
                            $servicemode);
-    $self->{handle}->sadd("mysql-$uniqsign-members",
-                           @masters);
 
     $self->{handle}->setnx("mysql-$uniqsign-primaryhost",
                            $primaryhost);
@@ -81,6 +79,24 @@ sub common_set {
     $log->info("master_check ok - " 
                . join(", ", @masters)
                . ", uniqsign: $uniqsign");
+  }
+
+  unless ($self->is_members_ok(%args)) {
+    eval {
+      my @get_masters  =
+         $self->{handle}->smembers("mysql-$uniqsign-members");
+      if (@get_masters + 0 > 0) {
+        foreach my $k (@get_masters) {
+          $self->{handle}->srem("mysql-$uniqsign-members", $k);
+        }
+      }
+
+      $self->{handle}->sadd("mysql-$uniqsign-members",
+                           @masters);
+    };
+    if ($@) {
+      $log->("sadd members error: $@");
+    }
   }
 }
 
@@ -107,6 +123,9 @@ sub is_members_ok {
   }
 
   my $status = 1;
+
+  $status = 0 unless (@get_masters + 0 == 0);
+
   foreach my $k (@get_masters) {
     unless (defined $masters_info{$k}) {
       $status = 0;
@@ -137,9 +156,6 @@ sub status_set {
     };
     if ($@) {
       $log->error("set $key error: $@");
-    }
-    else {
-      $log->info("set $key ok.");
     }
   }
 }
