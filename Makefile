@@ -9,6 +9,7 @@ SBINDIR   = $(DESTDIR)/usr/local/sbin
 LOGDIR    = $(DESTDIR)/var/log/mmm-manager
 ETCDIR    = $(DESTDIR)/etc
 CONFDIR   = $(ETCDIR)/mmm-manager
+SYSTEMDDIR = ${DESTDIR}/usr/lib/systemd/system
 
 install_common:
 		mkdir -p $(DESTDIR) $(MODULEDIR) $(BINDIR) $(SBINDIR) $(LOGDIR) $(ETCDIR) $(CONFDIR)
@@ -29,4 +30,8 @@ install_tools: install_common
 		cp -f bin/mmm-status ${BINDIR}
 		cp -f bin/mmm-uniqsign ${BINDIR}
 
-install: install_monitor install_identify install_agent install_tools
+install_systemd:
+		cp -f systemd/* ${SYSTEMDDIR}
+		systemctl daemon-reload
+
+install: install_monitor install_identify install_agent install_tools install_systemd

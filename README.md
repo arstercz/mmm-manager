@@ -105,8 +105,6 @@ by default.
 can work with on instance once time. you can start multiple process with different
 tag to monitor multiple multi-master instance.
 
-`mmm-monitor` and `mmm-identify` ignore the `INT` and `TERM` signal.
-
 ```
 [mysql3308]                               # tag
 database=information_schema
@@ -130,6 +128,16 @@ topic=mmm-switch-channel                  # mmm-identify and mmm-agent use this 
 
 [log]
 logfile=/var/log/mmm-manager/mmm-monitor.log
+```
+
+`mmm-monitor` and `mmm-identify` ignore the `INT` and `TERM` signal. 
+you can start/stop by systemd service(only test in Centos7):
+```
+systemctl start mmm-monitor@mysql3308  #mysql3308 is the tag option value
+systemctl stop mmm-monitor@mysql3308
+
+systemctl start mmm-identify@mysql3308
+systemctl stop mmm-identify@mysql3308
 ```
 
 #### mmm-agent.conf
@@ -159,6 +167,12 @@ topic=mmm-switch-channel            # the same with mmm.conf
 
 [log]
 logfile=/var/log/mmm-manager/mmm-agent.log
+```
+
+you can start/stop `mmm-agent` by systemd service(only test in Centos7):
+```
+systemctl start mmm-agent
+systemctl stop mmm-agent
 ```
 
 ## extra tools
