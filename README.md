@@ -208,6 +208,8 @@ Current multi master status:
 active master in hosts file immediately.
 
 3. support MySQL 5.7 (block/relase user@host)
+
+4. support Redis auth.
 ```
 
 ## License
