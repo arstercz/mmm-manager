@@ -366,7 +366,6 @@ sub get_threads_nums($) {
           next;
         }
         $num++;
-        print "$id, $thread_id, $user, $db, $command\n";
     }
 
     return $num;
