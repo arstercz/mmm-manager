@@ -1,0 +1,12 @@
+[Unit]
+Description=mmm-identify with tag %i
+
+[Service]
+Type=simple
+Environment="TAG_ARGS=%I"
+PermissionsStartOnly=true
+ExecStart=/usr/local/bin/mmm-identify --tag ${TAG_ARGS}
+ExecStop=kill -9 ${MAINPID}
+
+[Install]
+WantedBy=multi-user.targe

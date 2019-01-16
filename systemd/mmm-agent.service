@@ -1,0 +1,11 @@
+[Unit]
+Description=mmm-agent
+
+[Service]
+Type=simple
+PermissionsStartOnly=true
+ExecStart=/usr/local/bin/mmm-agent
+ExecStop=kill ${MAINPID}
+
+[Install]
+WantedBy=multi-user.targe
