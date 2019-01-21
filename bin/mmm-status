@@ -52,9 +52,9 @@ sub mysql_alive {
   my $host = shift;
   my $key  = "mysql-$uniqsign-$host-check";
  
-  my ($ping, $last_check, $read_only) = 
+  my ($ping, $last_check, $read_only, $repl_check) = 
     $redis->{handle}->hmget($key, 
-                    "ping", "last_check", "read_only");
+         "ping", "last_check", "read_only", "repl_check");
   my $delay = time() - $last_check;
 
   my $status = $ping == 1 
@@ -62,7 +62,7 @@ sub mysql_alive {
              ? "alive" 
              : "alive at $delay seconds ago"
              : "dead";
-  return $status . " readonly: $read_only";
+  return $status . " readonly: $read_only, replcheck: $repl_check";
 }
 
 # get database file handle.
