@@ -77,14 +77,17 @@ if ($tag ne 'all' and !(grep {/$tag/} @secs)) {
   exit 1;
 }
 
+my $reids_pass;
 if ($cfg->val("redis", "host")) {
   $redis = $cfg->val("redis", "host");
+  $redis_pass = $cfg->val("redis", "password") || undef;
 }
 
 my $redis_r = 
   MMMM::Monitor::Redis->new(
-    server => "$redis",
-    name   => sub { "monitor-check-$$" },  
+    server   => "$redis",
+    password => $redis_pass;
+    name     => sub { "monitor-check-$$" },  
   );
 
 foreach my $sec (@secs) {

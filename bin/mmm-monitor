@@ -171,15 +171,18 @@ unless (grep {/$tag/} @secs) {
   exit 1;
 }
 
+my $redis_pass;
 if ($cfg->val("redis", "host")) {
   $redis = $cfg->val("redis", "host");
+  $redis_pass = $cfg->val("redis", "password") || undef;
   $log->info("get redis host: $redis");
 }
 
 my $redis_r = 
   MMMM::Monitor::Redis->new(
-    server => "$redis",
-    name   => sub { "mmm-monitor-$$" },
+    server   => "$redis",
+    password => $redis_pass,
+    name     => sub { "mmm-monitor-$$" },
   );
 
 my $interval = $cfg->val($tag, "interval") || 3;

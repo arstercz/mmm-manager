@@ -127,6 +127,7 @@ identify_logfile=/var/log/mmm-manager/mmm-identify-3308.log
 
 [redis]
 host=10.0.21.17:6379
+password='xxxxx'                          # this option is optional, if redis require password
 topic=mmm-switch-channel                  # mmm-identify and mmm-agent use this topic to work.
 
 [log]
@@ -166,6 +167,7 @@ email_receiver=arstercz@gmail.com   # necessary if send_mail
 
 [redis]
 host=10.0.21.17:6379
+password='xxxxx'                    # optional, if redis require pasword
 topic=mmm-switch-channel            # the same with mmm.conf
 
 [log]
